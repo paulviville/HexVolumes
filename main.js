@@ -2,6 +2,7 @@ import * as THREE from './CMapJS/Libs/three.module.js';
 import * as Meshes from './meshes.js';
 
 import { loadCMap2 } from './CMapJS/IO/SurfaceFormats/CMap2IO.js';
+import { loadCmap3 } from './CMapJS/IO/Volumes_Formats/CMap3IO.js';
 
 import { OrbitControls } from './CMapJS/Libs/OrbitsControls.js';
 import MeshHandler from './MeshHandler.js';
@@ -56,7 +57,7 @@ const settings = new (function() {
 	this.edgeColor = 0x0A0A20;
 	this.updateEdgeColor = function (color) {meshHandler.setEdgeColor(color)};
 	this.updateEdgeVisibility = function (visible) {meshHandler.edgeVisibility(visible)};
-	this.showFace = true;
+	this.showFace = false;
 	this.faceColor = 0x66AABB;
 	this.updateFaceColor = function (color) {meshHandler.setFaceColor(color)};
 	this.updateFaceVisibility = function (visible) {meshHandler.faceVisibility(visible)};
@@ -65,14 +66,19 @@ const settings = new (function() {
 	this.edgeResize = function (size) {meshHandler.resizeEdges(size)};
 
 
-	this.mesh = 'tetrahedron';
-	this.subdivision = 'catmullClark';
-	this.apply = function () {subdivideMesh(this.subdivision)};
+	this.mesh = 'cube';
+	
+	this.volume = 1;
+	this.volumeTet = 1;
+	this.volumeSubdiv = 1;
+
+	this.simulate = false;
 	
 });
 
 function loadMesh (mesh) {
-	cmap = loadCMap2('off', Meshes[mesh + '_off']);
+	// cmap = loadCMap2('off', Meshes[mesh + '_off']);
+	cmap = loadCmap3("mesh", Meshes.gridMesh)
 	if(meshHandler)
 		meshHandler.delete();
 	meshHandler = new MeshHandler(cmap, {
@@ -89,33 +95,24 @@ function loadMesh (mesh) {
 		faces: settings.showFace,
 	});
 	meshHandler.addMeshesTo(scene);
+
+	// meshHandler.createSubdivision(scene);
+	// meshHandler.updateSubdivision();
+	settings.volumeTet = meshHandler.computeVolumeTetDecompAvg();
+	settings.volume = meshHandler.computeVolumeAvg();
+	// settings.volumeSubdiv = meshHandler.computeSubdivisionVolume();
+	meshHandler.initializeSimulation();
 }
 
-function subdivideMesh (scheme) {
-	switch(scheme) {
-		case 'catmullClark':
-			catmullClark(cmap);
-			break;
-		case 'loop △':
-			loop(cmap);
-			break;
-		case 'sqrt2 □':
-			sqrt2(cmap);
-			break;
-		case 'sqrt3 △':
-			sqrt3(cmap);
-			break;
-		case 'doosabin':
-			dooSabin(cmap);
-			break;
-		case 'butterfly △':
-			butterfly(cmap);
-			break;	
-		default:
-			break;
-	}
-	console.log(cmap.nbCells(cmap.vertex))
+
+window.move = function(id, x, y, z) {
+	meshHandler.moveVertex(id, x, y, z);
 	meshHandler.updateMeshes();
+	// meshHandler.updateSubdivision();
+	settings.volume = meshHandler.computeVolumeAvg();
+	settings.volumeTet = meshHandler.computeVolumeTetDecompAvg() / settings.volume;
+	// settings.volumeSubdiv = meshHandler.computeSubdivisionVolume()/ settings.volume;
+	// meshHandler.computeVolume();
 }
 
 const gui = new GUI({autoPlace: true, hideable: true});
@@ -129,10 +126,23 @@ settingsFolder.addColor(settings, 'faceColor').onChange(settings.updateFaceColor
 settingsFolder.add(settings, 'vertexSize').min(0.001).max(0.1).step(0.001).onChange(settings.vertexResize);
 settingsFolder.add(settings, 'edgeSize').min(0.2).max(5).step(0.05).onChange(settings.edgeResize);
 
+gui.add(settings, 'volume').step(0.0001).listen();
+gui.add(settings, 'volumeTet').step(0.0001).listen();
+gui.add(settings, 'volumeSubdiv').step(0.0001).listen();
+gui.add(settings, 'simulate');
+
 gui.add(settings, 'mesh', ['tetrahedron', 'cube', 'octahedron', 'dodecahedron', 'icosahedron']).onChange(loadMesh);
-gui.add(settings, 'subdivision', ['catmullClark', 'loop △', 'sqrt2 □', 'sqrt3 △', 'doosabin', 'butterfly △']);
-gui.add(settings, 'apply');
 loadMesh(settings.mesh);
+
+function update()
+{
+	if(settings.simulate) {
+		meshHandler.simulate(0.02, 1, 1);
+		meshHandler.updateMeshes();
+		settings.volume = meshHandler.computeVolumeAvg();
+		settings.volumeTet = meshHandler.computeVolumeTetDecompAvg() / settings.volume;
+	}
+}
 
 function render()
 {
@@ -141,6 +151,7 @@ function render()
 
 function mainloop()
 {
+	update();
     render();
     requestAnimationFrame(mainloop);
 }
